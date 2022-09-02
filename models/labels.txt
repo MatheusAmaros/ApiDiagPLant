@@ -1,0 +1,4 @@
+0 Black Spot
+1 Cancro
+2 Saudável
+3 greening
