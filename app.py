@@ -3,17 +3,34 @@ from keras.models import load_model
 import numpy as np
 import cv2
 import urllib
-from flask import Flask, request
+from flask import Flask,jsonify ,request
 import base64
 from PIL import Image
 from io import BytesIO
 import math
+from flask_ngrok import run_with_ngrok
+from pyngrok import ngrok
+import json
 
-app = Flask('DiagPlant')
-model = load_model('models/keras_model.h5')
+app = Flask(__name__)
+run_with_ngrok(app)
+ngrok.set_auth_token('2EIz2ZMt4BiMBSB8lgtG7w3x3F8_E6SBYNTeFb1bhXqtwka')
+
+model = load_model('/content/keras_model.h5')
 data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
-classes = ['Black Spot','Cancro', 'Saudável','greening']
-
+classes = ['Mancha Preta', 'Saudável','Cancro cítrico','greening']
+descricoes = [
+    "A mancha preta dos citros (CBS) é uma doença dos citros causada pelo fungo Phyllosticta citricarpa (anteriormente conhecido como Guignardia citricarpa). Este fungo afeta plantas cítricas em climas subtropicais, reduzindo tanto a quantidade quanto a qualidade dos frutos.",
+    "",
+    "O cancro cítrico, causado pela bactéria Xanthomonas citri subsp. citri, ocasiona lesões locais em folhas, frutos e ramos.",
+    "O greening ou huanglongbing é uma doença causada pelas bactérias Candidatus Liberibacter spp, Candidatus Liberibacter africanus, Candidatus Liberibacter asiaticus e Candidatus Liberibacter americanus que afeta os citrus, deixando suas folhas amareladas e mosqueadas. "
+]
+tratamentos = [
+    "Remoção dos frutos temporãos infectados antes do início da florada.",
+    "",
+    "Como não existe método curativo para a doença, a única forma de eliminar o cancro cítrico é por erradicação do material contaminado. No entanto, só a erradicação das árvores contaminadas não garante a eliminação da bactéria causadora do cancro cítrico.",
+    "O controle do greening exige o plantio de mudas sadias, a eliminação das plantas doentes e o controle do psilídeo. A eliminação das plantas é obrigatória por lei. "
+]
 @app.route('/', methods=['GET', 'POST'])
 def hello_world():
     return 'Hello, World!'
@@ -36,15 +53,37 @@ def teste():
     data[0] = normalized_image_array
     prediction = model.predict(data)
     indexmaior = np.argmax(prediction)
+    porcentoIndexmaior = prediction[indexmaior]
     prediction[0][indexmaior] = 0
     indexsegundo = np.argmax(prediction)
+    porcentoIndexsegundo = prediction[indexsegundo]
     
     retorno = {
-        "PrimeiroDiagnostico": classes[indexmaior],
-        "SegundoDiagnostico": classes[indexsegundo]
+        "PrimeiroDiagnostico": {
+            "doenca":classes[indexmaior],
+            "probabilidade":porcentoIndexmaior,
+            "descricao":descricoes[indexmaior],
+            "tratamento":tratamentos[indexmaior]
+        },
+        "SegundoDiagnostico": {
+            "doenca":classes[indexsegundo],
+            "probabilidade": porcentoIndexsegundo,
+            "descricao": descricoes[indexsegundo],
+            "tratamento":tratamentos[indexsegundo]
+        }
     }
     print(retorno)
     return retorno
+
+def predict(model, img):
+    img_array = tf.keras.preprocessing.image.img_to_array(images[i].numpy())
+    img_array = tf.expand_dims(img_array, 0)
+
+    predictions = model.predict(img_array)
+
+    predicted_class = class_names[np.argmax(predictions[0])]
+    confidence = round(100 * (np.max(predictions[0])), 2)
+    return predicted_class, confidence
 
 @app.route('/imagem', methods=["GET", "POST"])
 #img = cv2.imread('models/black.jpg')
@@ -60,48 +99,31 @@ def uploadImagem():
     normalized_image_array = (image_array.astype(np.float32) / 127.0) - 1
     data[0] = normalized_image_array
     prediction = model.predict(data)
+    print(prediction)
     indexmaior = np.argmax(prediction)
+    porcentoIndexmaior = prediction[0][indexmaior]
     prediction[0][indexmaior] = 0
     indexsegundo = np.argmax(prediction)
+    porcentoIndexsegundo = prediction[0][indexsegundo]
+    print('Outputs shape')    
+    print(prediction[0][0]* 100) # prints (n,1) but  need (n,)
+    return jsonify({
+        "PrimeiroDiagnostico": {
+            "doenca":classes[indexmaior],
+            "probabilidade": str(porcentoIndexmaior),
+            "descricao":descricoes[indexmaior],
+            "tratamento":tratamentos[indexmaior]
+        },
+        "SegundoDiagnostico": {
+            "doenca":classes[indexsegundo],
+            "probabilidade": str(porcentoIndexsegundo),
+            "descricao": descricoes[indexsegundo],
+            "tratamento":tratamentos[indexsegundo]
+        }
+    })
     
-    retorno = {
-        "PrimeiroDiagnostico": classes[indexmaior],
-        "SegundoDiagnostico": classes[indexsegundo]
-    }
-    print(retorno)
-    return retorno
 
-
-@app.route('/base64', methods=["GET", "POST"])
-#img = cv2.imread('models/black.jpg')
-def uploadImagemBase64():
-    imagemBase64 = "/9j/4QCCRXhpZgAATU0AKgAAAAgABQEaAAUAAAABAAAASgEbAAUAAAABAAAAUgEoAAMAAAABAAIAAAITAAMAAAABAAEAAIKYAAIAAAAfAAAAWgAAAAAAAABIAAAAAQAAAEgAAAABKGMpIFJwcm9uZ2phaSB8IERyZWFtc3RpbWUuY29tAAD/7QBGUGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAACocAnQAHihjKSBScHJvbmdqYWkgfCBEcmVhbXN0aW1lLmNvbRwCAAACAAT/4Qx1aHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLwA8P3hwYWNrZXQgYmVnaW49J++7vycgaWQ9J1c1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCc/Pgo8eDp4bXBtZXRhIHhtbG5zOng9J2Fkb2JlOm5zOm1ldGEvJyB4OnhtcHRrPSdJbWFnZTo6RXhpZlRvb2wgMTAuODAnPgo8cmRmOlJERiB4bWxuczpyZGY9J2h0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMnPgoKIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PScnCiAgeG1sbnM6cGx1cz0naHR0cDovL25zLnVzZXBsdXMub3JnL2xkZi94bXAvMS4wLyc+CiAgPHBsdXM6TGljZW5zb3I+CiAgIDxyZGY6U2VxPgogICAgPHJkZjpsaSByZGY6cGFyc2VUeXBlPSdSZXNvdXJjZSc+CiAgICAgPHBsdXM6TGljZW5zb3JVUkw+aHR0cHM6Ly93d3cuZHJlYW1zdGltZS5jb208L3BsdXM6TGljZW5zb3JVUkw+CiAgICA8L3JkZjpsaT4KICAgPC9yZGY6U2VxPgogIDwvcGx1czpMaWNlbnNvcj4KIDwvcmRmOkRlc2NyaXB0aW9uPgoKIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PScnCiAgeG1sbnM6eG1wUmlnaHRzPSd"
-    imagemBase64 = imagemBase64.ljust((int)(math.ceil(len(imagemBase64) / 4)) * 4, '=')
-    imagem = base64.b64decode(imagemBase64)
-    imagem = base64.decodebytes(imagem)
-    imagem = Image.open(BytesIO(imagem))
-    
-    img_array = np.array(bytearray(imagem.read()), dtype=np.uint8)
-    img = cv2.imdecode(img_array, -1)
-    
-    imgS = cv2.resize(img, (224, 224))
-    image_array = np.asarray(imgS)
-    normalized_image_array = (image_array.astype(np.float32) / 127.0) - 1
-    data[0] = normalized_image_array
-    prediction = model.predict(data)
-    indexmaior = np.argmax(prediction)
-    prediction[0][indexmaior] = 0
-    indexsegundo = np.argmax(prediction)
-    
-    retorno = {
-        "PrimeiroDiagnostico": classes[indexmaior],
-        "SegundoDiagnostico": classes[indexsegundo]
-    }
-    print(retorno)
-    return retorno
-
-    
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=False, port=4000)
+   app.run()
